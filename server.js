@@ -15,7 +15,7 @@ app.use(bodyParser.json());
 
 // CORS Setup
 const corsOptions = {
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: 'new-proj-job-mafz.vercel.app' || 'http://localhost:5173',
   credentials: true,
 };
 app.use(cors(corsOptions));
