@@ -13,18 +13,18 @@ dotenv.config(); // Load environment variables
 const app = express();
 app.use(bodyParser.json());
 
-
-app.use(cors({
-  origin:'*', 
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: '*',
+    credentials: true,
+  })
+);
 
 // MongoDB connection
 mongoose
   .connect(process.env.DB_URI)
   .then(() => console.log('MongoDB Connected Successfully'))
   .catch((err) => console.log('Error is ', err));
-
 
 // User Schema and Model
 const userSchema = new mongoose.Schema({
@@ -37,7 +37,7 @@ const userSchema = new mongoose.Schema({
 const User = mongoose.model('User', userSchema);
 
 // Task Schema and Model
-const taskSchema =new mongoose.Schema({
+const taskSchema = new mongoose.Schema({
   taskName: { type: String, required: true },
   nextExecution: { type: Date, required: true },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -66,7 +66,6 @@ const transporter = nodemailer.createTransport({
 
 // Helper function to send emails
 const sendEmail = async (taskName, userEmail) => {
-  console.log("This is user mail ", userEmail);
   try {
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
@@ -83,100 +82,50 @@ const sendEmail = async (taskName, userEmail) => {
 
 // Middleware to Protect Routes
 const authMiddleware = (req, res, next) => {
-  // console.log(req.headers);
-  
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ success: false, message: 'Access Denied' });
 
   try {
     const verified = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = verified; // Add user data to request object
+    req.user = verified;
     next();
   } catch (err) {
     console.error('JWT verification failed:', err.message);
     res.status(400).json({ success: false, message: 'Invalid Token' });
   }
 };
-// Authenticated route to fetch user details
-app.get('/auth/me', authMiddleware, async (req, res) => {
-  try {
-    // Fetch user details using the `req.user` populated by the `authMiddleware`
-    const user = await User.findById(req.user.id).select('-password'); // Exclude password for security
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-
-    res.json({ success: true, user });
-  } catch (error) {
-    res.status(500).json({ success: false, message: 'Server error', error: error.message });
-  }
-});
-
-// User Registration (Signup)
-app.post('/signup', async (req, res) => {
-  const { name, email, password } = req.body;
-
-  // Check if the user already exists
-  const existingUser = await User.findOne({ email });
-  if (existingUser) return res.status(400).json({ success: false, message: 'Email already exists' });
-
-  // Hash password and save user
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const user = new User({ name, email, password: hashedPassword });
-  await user.save();
-  res.json({ success: true, message: 'User registered successfully' });
-});
-
-// User Login
-app.post('/login', async (req, res) => {
-  const { email, password } = req.body;
-
-  // Check if the user exists
-  const user = await User.findOne({ email });
-  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-
-  // Validate password
-  const isMatch = await bcrypt.compare(password, user.password);
-  if (!isMatch) return res.status(400).json({ success: false, message: 'Invalid credentials' });
-
-  // Generate token
-  const token = jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1h' });
-
-  res.json({ success: true, token, user: { id: user._id, name: user.name, email: user.email } });
-});
 
 // Add New Task
 app.post('/add-task', authMiddleware, async (req, res) => {
   try {
     const { taskName, executionDate } = req.body;
-    console.log("This is user ", req.user);
 
+    // Validate executionDate
     const parsedDate = new Date(executionDate);
-    if (isNaN(parsedDate)) {
-      return res.status(400).json({ success: false, message: 'Invalid execution date' });
+    if (isNaN(parsedDate.getTime())) {
+      console.error('Invalid execution date format:', executionDate);
+      return res.status(400).json({ success: false, message: 'Invalid execution date format' });
     }
 
     // Save the task in the database
-    const task = new Task({ 
-      taskName, 
-      nextExecution: parsedDate, 
-      userId: req.user.id 
+    const task = new Task({
+      taskName,
+      nextExecution: parsedDate,
+      userId: req.user.id,
     });
     await task.save();
 
     // Schedule the task
     cron.schedule(
-      `${parsedDate.getSeconds()} ${parsedDate.getMinutes()} ${parsedDate.getHours()} ${parsedDate.getDate()} ${parsedDate.getMonth() + 1} *`,
+      `${parsedDate.getSeconds()} ${parsedDate.getMinutes()} ${parsedDate.getHours()} ${parsedDate.getDate()} ${
+        parsedDate.getMonth() + 1
+      } *`,
       async () => {
-        console.log(`Executing task: ${taskName}`);
-
         try {
-          // Fetch the user using the userId from the task
           const user = await User.findById(task.userId);
           if (!user) throw new Error('User not found');
-
-          console.log(`Sending email to: ${user.email}`);
           await sendEmail(taskName, user.email);
 
-          // Save success log
           const log = new Log({
             taskName,
             executionTime: new Date(),
@@ -187,8 +136,6 @@ app.post('/add-task', authMiddleware, async (req, res) => {
           await log.save();
         } catch (error) {
           console.error('Error executing task:', error.message);
-
-          // Save failure log
           const log = new Log({
             taskName,
             executionTime: new Date(),
@@ -199,7 +146,7 @@ app.post('/add-task', authMiddleware, async (req, res) => {
           await log.save();
         }
       },
-      { timezone: 'Asia/Kolkata' } // IST Time Zone
+      { timezone: 'Asia/Kolkata' }
     );
 
     res.json({ success: true, message: `Task "${taskName}" scheduled for ${parsedDate.toLocaleString()}` });
@@ -209,53 +156,10 @@ app.post('/add-task', authMiddleware, async (req, res) => {
   }
 });
 
-
-// Delete Task
-app.delete('/delete-task/:id', authMiddleware, async (req, res) => {
-  const { id } = req.params;
-
-  const task = await Task.findOneAndDelete({ _id: id, userId: req.user.id });
-  if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
-
-  await Log.deleteMany({ taskName: task.taskName, userId: req.user.id });
-  res.json({ success: true, message: `Task "${task.taskName}" and associated logs deleted.` });
-});
-
 // Fetch Tasks
 app.get('/tasks', authMiddleware, async (req, res) => {
   const tasks = await Task.find({ userId: req.user.id });
   res.json(tasks);
-});
-
-// Fetch Logs for Task History
-app.get('/task-history', authMiddleware, async (req, res) => {
-  const logs = await Log.find({ userId: req.user.id }).sort({ executionTime: -1 });
-  res.json(logs);
-});
-
-// Update Task
-app.put('/update-task/:id', authMiddleware, async (req, res) => {
-  const { id } = req.params;
-  const { taskName, executionDate } = req.body;
-
-  const task = await Task.findOneAndUpdate(
-    { _id: id, userId: req.user.id },
-    { taskName, nextExecution: new Date(executionDate) },
-    { new: true }
-  );
-
-  if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
-
-  const log = new Log({
-    taskName,
-    executionTime: new Date(),
-    status: 'Updated',
-    message: `Task updated to execute at ${executionDate}`,
-    userId: req.user.id,
-  });
-  await log.save();
-
-  res.json({ success: true, message: `Task "${taskName}" updated successfully` });
 });
 
 // Start Server
