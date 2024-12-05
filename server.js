@@ -19,8 +19,8 @@ app.use(bodyParser.json());
 //   credentials: true,
 // };
 app.use(cors({
-  origin:'https://new-proj-job-mafz.vercel.app',
-   credentials: true,
+  origin:['https://new-proj-job-mafz.vercel.app', 'http://localhost:5173'],
+  credentials: true,
 }));
 
 // MongoDB connection
