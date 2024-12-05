@@ -14,17 +14,21 @@ const app = express();
 app.use(bodyParser.json());
 
 // CORS Setup
-const corsOptions = {
-  origin : ['https://new-proj-job-mafz.vercel.app', 'http://localhost:5173'],
-  credentials: true,
-};
-app.use(cors(corsOptions));
+// const corsOptions = {
+//   origin :'https://new-proj-job-mafz.vercel.app',
+//   credentials: true,
+// };
+app.use(cors({
+  origin:'https://new-proj-job-mafz.vercel.app',
+   credentials: true,
+}));
 
 // MongoDB connection
 mongoose
-  .connect(process.env.DB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .connect(process.env.DB_URI)
   .then(() => console.log('MongoDB Connected Successfully'))
   .catch((err) => console.log('Error is ', err));
+
 
 // User Schema and Model
 const userSchema = new mongoose.Schema({
@@ -67,7 +71,6 @@ const transporter = nodemailer.createTransport({
 // Helper function to send emails
 const sendEmail = async (taskName, userEmail) => {
   console.log("This is user mail ", userEmail);
-  
   try {
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
