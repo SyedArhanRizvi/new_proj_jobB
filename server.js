@@ -13,13 +13,9 @@ dotenv.config(); // Load environment variables
 const app = express();
 app.use(bodyParser.json());
 
-// CORS Setup
-// const corsOptions = {
-//   origin :'https://new-proj-job-mafz.vercel.app',
-//   credentials: true,
-// };
+
 app.use(cors({
-  origin:['https://new-proj-job-mafz.vercel.app', 'http://localhost:5173'],
+  origin:'*', 
   credentials: true,
 }));
 
