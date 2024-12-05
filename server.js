@@ -8,11 +8,10 @@ import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 
-dotenv.config(); // Load environment variables
+dotenv.config();
 
 const app = express();
 app.use(bodyParser.json());
-
 app.use(
   cors({
     origin: '*',
@@ -26,7 +25,7 @@ mongoose
   .then(() => console.log('MongoDB Connected Successfully'))
   .catch((err) => console.log('Error is ', err));
 
-// User Schema and Model
+// Schemas and Models
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, unique: true, required: true },
@@ -34,9 +33,6 @@ const userSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-const User = mongoose.model('User', userSchema);
-
-// Task Schema and Model
 const taskSchema = new mongoose.Schema({
   taskName: { type: String, required: true },
   nextExecution: { type: Date, required: true },
@@ -51,10 +47,11 @@ const logSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 });
 
+const User = mongoose.model('User', userSchema);
 const Task = mongoose.model('Task', taskSchema);
 const Log = mongoose.model('Log', logSchema);
 
-// Nodemailer transporter setup
+// Nodemailer Transporter
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST,
   port: process.env.EMAIL_PORT,
@@ -64,23 +61,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Helper function to send emails
-const sendEmail = async (taskName, userEmail) => {
-  try {
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: userEmail,
-      subject: `Scheduled Reminder for Task: ${taskName}`,
-      text: `This is a reminder for the task: "${taskName}".`,
-    });
-    console.log('Email sent for task:', taskName);
-  } catch (error) {
-    console.error('Error sending email:', error);
-    throw new Error('Failed to send email');
-  }
-};
-
-// Middleware to Protect Routes
+// Auth Middleware
 const authMiddleware = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ success: false, message: 'Access Denied' });
@@ -95,19 +76,59 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
-// Add New Task
+// Signup Route
+app.post('/signup', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = new User({
+      name,
+      email,
+      password: hashedPassword,
+    });
+
+    await user.save();
+    res.status(201).json({ success: true, message: 'Signup successful!' });
+  } catch (err) {
+    console.error('Signup error:', err.message);
+    res.status(500).json({ success: false, message: 'Signup failed' });
+  }
+});
+
+// Login Route
+app.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  console.log(email, password);
+  
+  try {
+    
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ success: false, message: 'User not found' });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ success: false, message: 'Invalid credentials' });
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    res.status(200).json({ success: true, token, message: 'Login successful!' });
+  } catch (err) {
+    console.error('Login error:', err.message);
+    res.status(500).json({ success: false, message: 'Login failed' });
+  }
+});
+
+// Add Task Route
 app.post('/add-task', authMiddleware, async (req, res) => {
   try {
     const { taskName, executionDate } = req.body;
 
-    // Validate executionDate
     const parsedDate = new Date(executionDate);
     if (isNaN(parsedDate.getTime())) {
-      console.error('Invalid execution date format:', executionDate);
+      console.error('Invalid execution date:', executionDate);
       return res.status(400).json({ success: false, message: 'Invalid execution date format' });
     }
 
-    // Save the task in the database
     const task = new Task({
       taskName,
       nextExecution: parsedDate,
@@ -115,7 +136,6 @@ app.post('/add-task', authMiddleware, async (req, res) => {
     });
     await task.save();
 
-    // Schedule the task
     cron.schedule(
       `${parsedDate.getSeconds()} ${parsedDate.getMinutes()} ${parsedDate.getHours()} ${parsedDate.getDate()} ${
         parsedDate.getMonth() + 1
@@ -124,7 +144,13 @@ app.post('/add-task', authMiddleware, async (req, res) => {
         try {
           const user = await User.findById(task.userId);
           if (!user) throw new Error('User not found');
-          await sendEmail(taskName, user.email);
+
+          await transporter.sendMail({
+            from: process.env.EMAIL_USER,
+            to: user.email,
+            subject: `Reminder for Task: ${taskName}`,
+            text: `This is a reminder for your task: "${taskName}".`,
+          });
 
           const log = new Log({
             taskName,
@@ -135,7 +161,8 @@ app.post('/add-task', authMiddleware, async (req, res) => {
           });
           await log.save();
         } catch (error) {
-          console.error('Error executing task:', error.message);
+          console.error('Task execution error:', error.message);
+
           const log = new Log({
             taskName,
             executionTime: new Date(),
@@ -149,17 +176,11 @@ app.post('/add-task', authMiddleware, async (req, res) => {
       { timezone: 'Asia/Kolkata' }
     );
 
-    res.json({ success: true, message: `Task "${taskName}" scheduled for ${parsedDate.toLocaleString()}` });
+    res.json({ success: true, message: `Task "${taskName}" scheduled successfully.` });
   } catch (error) {
-    console.error('Server error:', error.message);
-    res.status(500).json({ success: false, message: 'Server error' });
+    console.error('Add task error:', error.message);
+    res.status(500).json({ success: false, message: 'Failed to add task' });
   }
-});
-
-// Fetch Tasks
-app.get('/tasks', authMiddleware, async (req, res) => {
-  const tasks = await Task.find({ userId: req.user.id });
-  res.json(tasks);
 });
 
 // Start Server
